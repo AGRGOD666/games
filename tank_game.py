@@ -3,6 +3,7 @@ import math
 import asyncio
 import platform
 import random
+import pygame.gfxdraw
 
 # 初始化Pygame
 pygame.init()
@@ -41,15 +42,15 @@ class Tank:
 
     def move(self, keys=None):
         if self.is_player:
-            if keys[pygame.K_w]:
+            if keys[pygame.K_w]:  # 向前移动
                 self.x += self.speed * math.cos(math.radians(self.angle))
                 self.y -= self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_s]:
+            if keys[pygame.K_s]:  # 向后移动
                 self.x -= self.speed * math.cos(math.radians(self.angle))
                 self.y += self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_a]:
+            if keys[pygame.K_a]:  # 左转
                 self.angle += 3
-            if keys[pygame.K_d]:
+            if keys[pygame.K_d]:  # 右转
                 self.angle -= 3
         else:
             # 敌人随机移动
@@ -80,7 +81,7 @@ class Tank:
             (self.x + self.size * math.cos(math.radians(self.angle + 225)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 225)) + shadow_offset),
             (self.x + self.size * math.cos(math.radians(self.angle + 315)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 315)) + shadow_offset)
         ]
-        pygame.draw.polygon(screen, GRAY, points)
+        pygame.gfxdraw.filled_polygon(screen, points, GRAY)  # 使用 gfxdraw 提高抗锯齿效果
 
         # 绘制坦克主体
         points = [
@@ -89,7 +90,8 @@ class Tank:
             (self.x + self.size * math.cos(math.radians(self.angle + 225)), self.y - self.size * math.sin(math.radians(self.angle + 225))),
             (self.x + self.size * math.cos(math.radians(self.angle + 315)), self.y - self.size * math.sin(math.radians(self.angle + 315)))
         ]
-        pygame.draw.polygon(screen, self.color, points)
+        pygame.gfxdraw.filled_polygon(screen, points, self.color)  # 使用 gfxdraw 提高抗锯齿效果
+
         # 绘制炮管
         end_x = self.x + self.size * math.cos(math.radians(self.angle))
         end_y = self.y - self.size * math.sin(math.radians(self.angle))
@@ -146,14 +148,53 @@ bullets = []
 FPS = 60
 clock = pygame.time.Clock()
 
+def draw_gradient_background():
+    for y in range(HEIGHT):
+        color = (
+            240 - int(100 * (y / HEIGHT)),  # 渐变的红色分量
+            240 - int(100 * (y / HEIGHT)),  # 渐变的绿色分量
+            240  # 固定的蓝色分量
+        )
+        pygame.draw.line(screen, color, (0, y), (WIDTH, y))
+
 def draw_background():
-    screen.fill((240, 240, 240))  # 浅灰色背景
+    draw_gradient_background()
     # 绘制网格
     grid_size = 50
     for x in range(0, WIDTH, grid_size):
         pygame.draw.line(screen, GRAY, (x, 0), (x, HEIGHT), 1)
     for y in range(0, HEIGHT, grid_size):
         pygame.draw.line(screen, GRAY, (0, y), (WIDTH, y), 1)
+
+def restart_screen():
+    screen.fill(WHITE)
+    font = pygame.font.Font(None, 74)
+    text = font.render("Game Over", True, RED)
+    screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
+
+    font = pygame.font.Font(None, 50)
+    restart_text = font.render("Press R to Restart or Q to Quit", True, BLACK)
+    screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2))
+
+    pygame.display.flip()
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    return True  # Restart the game
+                if event.key == pygame.K_q:
+                    pygame.quit()
+                    exit()
+
+def reset_game():
+    global player, enemies, bullets
+    player = Tank(WIDTH // 2, HEIGHT // 2, GREEN, True)
+    enemies = [Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False) for _ in range(2)]
+    bullets = []
 
 def setup():
     pass
@@ -171,7 +212,7 @@ def update_loop():
         if event.type == pygame.QUIT:
             return
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE and player.alive:
+            if event.key == pygame.K_j and player.alive:  # 玩家1按下 J 键射击
                 bullet = player.shoot(pygame.time.get_ticks())
                 if bullet:
                     bullets.append(bullet)
@@ -223,6 +264,11 @@ def update_loop():
 
     # 控制帧率
     clock.tick(FPS)
+
+    # 检查玩家失败并显示重新开始页面
+    if not player.alive and pygame.time.get_ticks() - player.explosion_time >= player.explosion_duration:
+        if restart_screen():
+            reset_game()
 
 if platform.system() == "Emscripten":
     asyncio.ensure_future(main())
