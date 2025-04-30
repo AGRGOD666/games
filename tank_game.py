@@ -254,33 +254,31 @@ def handle_menu():
 def restart_screen():
     screen.fill(WHITE)
     font = pygame.font.Font(None, 74)
-    text = font.render("Game Over", True, RED)
+    text = font.render("游戏结束", True, RED)
     screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
 
     font = pygame.font.Font(None, 50)
     restart_text = font.render("按 R 重新开始", True, GREEN)
-    quit_text = font.render("按 Q 退出游戏", True, RED)
     menu_text = font.render("按 M 返回主菜单", True, BLUE)
+    quit_text = font.render("按 Q 退出游戏", True, RED)
     
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2))
-    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 60))
-    screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 120))
+    screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 60))
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
     
     pygame.display.flip()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            pygame.quit()
-            exit()
+            return "quit"
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_r:
-                reset_game()
-                return True  # Restart the game
-            if event.key == pygame.K_q:
-                pygame.quit()
-                exit()
+                return "restart"
             if event.key == pygame.K_m:
-                return False  # Return to menu
+                return "menu"
+            if event.key == pygame.K_q:
+                return "quit"
+    return None
 
 def reset_game():
     global player, enemies, bullets
@@ -302,7 +300,6 @@ async def main():
 def update_loop():
     global game_state
     
-    # 处理不同游戏状态
     if game_state == GAME_STATE_MENU:
         draw_menu()
         result = handle_menu()
@@ -314,11 +311,15 @@ def update_loop():
         return
     
     if game_state == GAME_STATE_GAMEOVER:
-        result = restart_screen()
-        if result is True:
+        action = restart_screen()
+        if action == "restart":
+            reset_game()
             game_state = GAME_STATE_PLAYING
-        elif result is False:
+        elif action == "menu":
             game_state = GAME_STATE_MENU
+        elif action == "quit":
+            pygame.quit()
+            exit()
         return
 
     # 游戏进行中的逻辑
