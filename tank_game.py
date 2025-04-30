@@ -52,6 +52,16 @@ class Tank:
                 self.angle += 3
             if keys[pygame.K_d]:  # 右转
                 self.angle -= 3
+            if keys[pygame.K_UP]:  # 向前移动
+                self.x += self.speed * math.cos(math.radians(self.angle))
+                self.y -= self.speed * math.sin(math.radians(self.angle))
+            if keys[pygame.K_DOWN]:  # 向后移动
+                self.x -= self.speed * math.cos(math.radians(self.angle))
+                self.y += self.speed * math.sin(math.radians(self.angle))
+            if keys[pygame.K_LEFT]:  # 左转
+                self.angle += 3
+            if keys[pygame.K_RIGHT]:  # 右转
+                self.angle -= 3
         else:
             # 敌人随机移动
             if random.random() < 0.02:
@@ -212,7 +222,7 @@ def update_loop():
         if event.type == pygame.QUIT:
             return
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_j and player.alive:  # 玩家1按下 J 键射击
+            if event.key in [pygame.K_j, pygame.K_SPACE] and player.alive:  # 玩家按下 J 或 SPACE 键射击
                 bullet = player.shoot(pygame.time.get_ticks())
                 if bullet:
                     bullets.append(bullet)
