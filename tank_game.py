@@ -24,6 +24,12 @@ RED = (255, 0, 0)
 YELLOW = (255, 255, 0)
 GRAY = (200, 200, 200)
 
+# 游戏状态
+GAME_STATE_MENU = 0
+GAME_STATE_PLAYING = 1
+GAME_STATE_GAMEOVER = 2
+game_state = GAME_STATE_MENU
+
 # 坦克类
 class Tank:
     def __init__(self, x, y, color=GREEN, is_player=True):
@@ -91,7 +97,21 @@ class Tank:
             (self.x + self.size * math.cos(math.radians(self.angle + 225)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 225)) + shadow_offset),
             (self.x + self.size * math.cos(math.radians(self.angle + 315)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 315)) + shadow_offset)
         ]
-        pygame.gfxdraw.filled_polygon(screen, points, GRAY)  # 使用 gfxdraw 提高抗锯齿效果
+        pygame.gfxdraw.filled_polygon(screen, points, GRAY)
+
+        # 绘制履带
+        track_width = 8
+        track_points = [
+            (self.x + (self.size + track_width) * math.cos(math.radians(self.angle + 45)), 
+             self.y - (self.size + track_width) * math.sin(math.radians(self.angle + 45))),
+            (self.x + (self.size + track_width) * math.cos(math.radians(self.angle + 135)), 
+             self.y - (self.size + track_width) * math.sin(math.radians(self.angle + 135))),
+            (self.x + (self.size + track_width) * math.cos(math.radians(self.angle + 225)), 
+             self.y - (self.size + track_width) * math.sin(math.radians(self.angle + 225))),
+            (self.x + (self.size + track_width) * math.cos(math.radians(self.angle + 315)), 
+             self.y - (self.size + track_width) * math.sin(math.radians(self.angle + 315)))
+        ]
+        pygame.gfxdraw.filled_polygon(screen, track_points, DARK_GREEN if self.is_player else DARK_BLUE)
 
         # 绘制坦克主体
         points = [
@@ -100,12 +120,42 @@ class Tank:
             (self.x + self.size * math.cos(math.radians(self.angle + 225)), self.y - self.size * math.sin(math.radians(self.angle + 225))),
             (self.x + self.size * math.cos(math.radians(self.angle + 315)), self.y - self.size * math.sin(math.radians(self.angle + 315)))
         ]
-        pygame.gfxdraw.filled_polygon(screen, points, self.color)  # 使用 gfxdraw 提高抗锯齿效果
+        pygame.gfxdraw.filled_polygon(screen, points, self.color)
+        # 添加金属质感轮廓线
+        pygame.gfxdraw.aapolygon(screen, points, BLACK)
 
-        # 绘制炮管
-        end_x = self.x + self.size * math.cos(math.radians(self.angle))
-        end_y = self.y - self.size * math.sin(math.radians(self.angle))
-        pygame.draw.line(screen, BLACK, (self.x, self.y), (end_x, end_y), 5)
+        # 绘制装甲板凸起效果
+        armor_size = self.size * 0.7
+        armor_points = [
+            (self.x + armor_size * math.cos(math.radians(self.angle + 45)), 
+             self.y - armor_size * math.sin(math.radians(self.angle + 45))),
+            (self.x + armor_size * math.cos(math.radians(self.angle + 135)), 
+             self.y - armor_size * math.sin(math.radians(self.angle + 135))),
+            (self.x + armor_size * math.cos(math.radians(self.angle + 225)), 
+             self.y - armor_size * math.sin(math.radians(self.angle + 225))),
+            (self.x + armor_size * math.cos(math.radians(self.angle + 315)), 
+             self.y - armor_size * math.sin(math.radians(self.angle + 315)))
+        ]
+        pygame.gfxdraw.filled_polygon(screen, armor_points, DARK_GREEN if self.is_player else DARK_BLUE)
+
+        # 绘制增强的炮管
+        barrel_width = 6
+        barrel_length = self.size * 1.2
+        angle_rad = math.radians(self.angle)
+        cos_angle = math.cos(angle_rad)
+        sin_angle = math.sin(angle_rad)
+        
+        # 炮管主体
+        end_x = self.x + barrel_length * cos_angle
+        end_y = self.y - barrel_length * sin_angle
+        pygame.draw.line(screen, BLACK, (self.x, self.y), (end_x, end_y), barrel_width)
+        
+        # 炮管末端加粗
+        pygame.draw.circle(screen, BLACK, (int(end_x), int(end_y)), barrel_width//2)
+        
+        # 炮管基座
+        pygame.draw.circle(screen, DARK_GREEN if self.is_player else DARK_BLUE, 
+                         (int(self.x), int(self.y)), barrel_width+2)
 
     def shoot(self, current_time):
         if not self.alive:
@@ -176,6 +226,31 @@ def draw_background():
     for y in range(0, HEIGHT, grid_size):
         pygame.draw.line(screen, GRAY, (0, y), (WIDTH, y), 1)
 
+def draw_menu():
+    screen.fill(WHITE)
+    font = pygame.font.Font(None, 74)
+    title = font.render("坦克大战", True, BLACK)
+    screen.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 3))
+
+    font = pygame.font.Font(None, 50)
+    start_text = font.render("按 ENTER 开始游戏", True, GREEN)
+    quit_text = font.render("按 Q 退出游戏", True, RED)
+    screen.blit(start_text, (WIDTH // 2 - start_text.get_width() // 2, HEIGHT // 2))
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 60))
+    pygame.display.flip()
+
+def handle_menu():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:  # ENTER键开始游戏
+                reset_game()
+                return True
+            if event.key == pygame.K_q:  # Q键退出游戏
+                return False
+    return None
+
 def restart_screen():
     screen.fill(WHITE)
     font = pygame.font.Font(None, 74)
@@ -183,22 +258,29 @@ def restart_screen():
     screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
 
     font = pygame.font.Font(None, 50)
-    restart_text = font.render("Press R to Restart or Q to Quit", True, BLACK)
+    restart_text = font.render("按 R 重新开始", True, GREEN)
+    quit_text = font.render("按 Q 退出游戏", True, RED)
+    menu_text = font.render("按 M 返回主菜单", True, BLUE)
+    
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2))
-
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 60))
+    screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 120))
+    
     pygame.display.flip()
 
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            exit()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                reset_game()
+                return True  # Restart the game
+            if event.key == pygame.K_q:
                 pygame.quit()
                 exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    return True  # Restart the game
-                if event.key == pygame.K_q:
-                    pygame.quit()
-                    exit()
+            if event.key == pygame.K_m:
+                return False  # Return to menu
 
 def reset_game():
     global player, enemies, bullets
@@ -210,6 +292,7 @@ def setup():
     pass
 
 async def main():
+    global game_state
     setup()
     running = True
     while running:
@@ -217,7 +300,28 @@ async def main():
         await asyncio.sleep(1.0 / FPS)
 
 def update_loop():
-    # 处理事件
+    global game_state
+    
+    # 处理不同游戏状态
+    if game_state == GAME_STATE_MENU:
+        draw_menu()
+        result = handle_menu()
+        if result is False:
+            pygame.quit()
+            exit()
+        elif result is True:
+            game_state = GAME_STATE_PLAYING
+        return
+    
+    if game_state == GAME_STATE_GAMEOVER:
+        result = restart_screen()
+        if result is True:
+            game_state = GAME_STATE_PLAYING
+        elif result is False:
+            game_state = GAME_STATE_MENU
+        return
+
+    # 游戏进行中的逻辑
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return
@@ -275,10 +379,9 @@ def update_loop():
     # 控制帧率
     clock.tick(FPS)
 
-    # 检查玩家失败并显示重新开始页面
+    # 检查玩家失败
     if not player.alive and pygame.time.get_ticks() - player.explosion_time >= player.explosion_duration:
-        if restart_screen():
-            reset_game()
+        game_state = GAME_STATE_GAMEOVER
 
 if platform.system() == "Emscripten":
     asyncio.ensure_future(main())
