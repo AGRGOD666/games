@@ -28,6 +28,7 @@ GRAY = (200, 200, 200)
 GAME_STATE_MENU = 0
 GAME_STATE_PLAYING = 1
 GAME_STATE_GAMEOVER = 2
+GAME_STATE_VICTORY = 3
 game_state = GAME_STATE_MENU
 
 # 坦克类
@@ -205,6 +206,7 @@ class Bullet:
 player = Tank(WIDTH // 2, HEIGHT // 2, GREEN, True)
 enemies = [Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False) for _ in range(2)]  # 减少到2个敌人
 bullets = []
+score = 0  # 添加得分变量
 FPS = 60
 clock = pygame.time.Clock()
 
@@ -257,7 +259,11 @@ def restart_screen():
     text = font.render("游戏结束", True, RED)
     screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
 
+    # 显示得分
     font = pygame.font.Font(None, 50)
+    score_text = font.render(f"最终得分: {score}", True, BLACK)
+    screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 - 60))
+
     restart_text = font.render("按 R 重新开始", True, GREEN)
     menu_text = font.render("按 M 返回主菜单", True, BLUE)
     quit_text = font.render("按 Q 退出游戏", True, RED)
@@ -265,6 +271,11 @@ def restart_screen():
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2))
     screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 60))
     screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
+
+    # 添加游戏说明
+    font = pygame.font.Font(None, 36)
+    hint_text = font.render("WASD或方向键控制移动，空格或J键发射", True, BLACK)
+    screen.blit(hint_text, (WIDTH // 2 - hint_text.get_width() // 2, HEIGHT - 50))
     
     pygame.display.flip()
 
@@ -280,11 +291,49 @@ def restart_screen():
                 return "quit"
     return None
 
+def draw_victory_screen():
+    screen.fill(WHITE)
+    font = pygame.font.Font(None, 74)
+    text = font.render("胜利!", True, GREEN)
+    screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
+
+    font = pygame.font.Font(None, 50)
+    score_text = font.render(f"最终得分: {score}", True, BLACK)
+    screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 - 60))
+
+    restart_text = font.render("按 R 再来一局", True, GREEN)
+    menu_text = font.render("按 M 返回主菜单", True, BLUE)
+    quit_text = font.render("按 Q 退出游戏", True, RED)
+    
+    screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2))
+    screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 60))
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
+    
+    pygame.display.flip()
+    
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return "quit"
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                return "restart"
+            if event.key == pygame.K_m:
+                return "menu"
+            if event.key == pygame.K_q:
+                return "quit"
+    return None
+
 def reset_game():
-    global player, enemies, bullets
+    global player, enemies, bullets, score
     player = Tank(WIDTH // 2, HEIGHT // 2, GREEN, True)
     enemies = [Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False) for _ in range(2)]
     bullets = []
+    score = 0  # 重置得分
+
+def draw_score():
+    font = pygame.font.Font(None, 36)
+    score_text = font.render(f"得分: {score}", True, BLACK)
+    screen.blit(score_text, (10, 10))
 
 def setup():
     pass
@@ -298,7 +347,7 @@ async def main():
         await asyncio.sleep(1.0 / FPS)
 
 def update_loop():
-    global game_state
+    global game_state, score
     
     if game_state == GAME_STATE_MENU:
         draw_menu()
@@ -312,6 +361,18 @@ def update_loop():
     
     if game_state == GAME_STATE_GAMEOVER:
         action = restart_screen()
+        if action == "restart":
+            reset_game()
+            game_state = GAME_STATE_PLAYING
+        elif action == "menu":
+            game_state = GAME_STATE_MENU
+        elif action == "quit":
+            pygame.quit()
+            exit()
+        return
+
+    if game_state == GAME_STATE_VICTORY:
+        action = draw_victory_screen()
         if action == "restart":
             reset_game()
             game_state = GAME_STATE_PLAYING
@@ -359,6 +420,7 @@ def update_loop():
                     enemy.alive = False
                     enemy.explosion_time = current_time
                     bullets.remove(bullet)
+                    score += 100  # 击中敌人增加得分
                     break
         else:
             if player.alive and math.hypot(bullet.x - player.x, bullet.y - player.y) < player.size:
@@ -375,14 +437,21 @@ def update_loop():
             enemy.draw(current_time)
     for bullet in bullets:
         bullet.draw()
+    draw_score()  # 显示得分
     pygame.display.flip()
 
     # 控制帧率
     clock.tick(FPS)
 
+    # 检查胜利条件
+    
+    if player.alive and all(not enemy.alive for enemy in enemies):
+        game_state = GAME_STATE_VICTORY
+
     # 检查玩家失败
     if not player.alive and pygame.time.get_ticks() - player.explosion_time >= player.explosion_duration:
         game_state = GAME_STATE_GAMEOVER
+
 
 if platform.system() == "Emscripten":
     asyncio.ensure_future(main())
