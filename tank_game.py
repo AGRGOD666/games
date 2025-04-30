@@ -9,7 +9,7 @@ import pygame.gfxdraw
 pygame.init()
 
 # 屏幕设置
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1200, 800  # 加大地图尺寸
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("坦克游戏")
 
@@ -31,6 +31,21 @@ GAME_STATE_GAMEOVER = 2
 GAME_STATE_VICTORY = 3
 game_state = GAME_STATE_MENU
 
+# 障碍物类
+class Obstacle:
+    def __init__(self, x, y, width, height):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.color = GRAY
+        
+    def draw(self):
+        pygame.draw.rect(screen, self.color, self.rect)
+        # 添加阴影效果
+        shadow = pygame.Rect(self.rect.x + 5, self.rect.y + 5, self.rect.width, self.rect.height)
+        pygame.draw.rect(screen, (100, 100, 100), shadow)
+        pygame.draw.rect(screen, self.color, self.rect)
+        # 添加边框
+        pygame.draw.rect(screen, BLACK, self.rect, 2)
+
 # 坦克类
 class Tank:
     def __init__(self, x, y, color=GREEN, is_player=True):
@@ -46,8 +61,12 @@ class Tank:
         self.alive = True
         self.explosion_time = 0
         self.explosion_duration = 500  # 爆炸效果持续0.5秒
+        self.lives = 3 if is_player else 1  # 玩家有3条命，敌人1条命
+        self.respawn_time = 0  # 重生计时器
+        self.respawn_delay = 2000  # 重生延迟2秒
 
     def move(self, keys=None):
+        old_x, old_y = self.x, self.y
         if self.is_player:
             if keys[pygame.K_w]:  # 向前移动
                 self.x += self.speed * math.cos(math.radians(self.angle))
@@ -81,13 +100,20 @@ class Tank:
         self.x = max(self.size, min(WIDTH - self.size, self.x))
         self.y = max(self.size, min(HEIGHT - self.size, self.y))
 
+        # 检查与障碍物的碰撞
+        tank_rect = pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
+        for obstacle in obstacles:
+            if tank_rect.colliderect(obstacle.rect):
+                self.x, self.y = old_x, old_y
+                break
+
     def draw(self, current_time):
         if not self.alive:
             if current_time - self.explosion_time < self.explosion_duration:
-                # 绘制爆炸效果
-                radius = 10 + (current_time - self.explosion_time) / self.explosion_duration * 20
-                pygame.draw.circle(screen, YELLOW, (int(self.x), int(self.y), radius), 0)
-                pygame.draw.circle(screen, RED, (int(self.x), int(self.y), radius / 2), 0)
+                # 修复爆炸效果绘制参数
+                radius = int(10 + (current_time - self.explosion_time) / self.explosion_duration * 20)
+                pygame.draw.circle(screen, YELLOW, (int(self.x), int(self.y)), radius)
+                pygame.draw.circle(screen, RED, (int(self.x), int(self.y)), radius // 2)
             return
 
         # 绘制坦克阴影
@@ -176,6 +202,17 @@ class Tank:
                 return Bullet(bullet_x, bullet_y, angle_to_player, is_player=False)
         return None
 
+    def respawn(self, current_time):
+        if not self.alive and self.lives > 0 and current_time - self.explosion_time >= self.explosion_duration:
+            self.alive = True
+            self.x = random.randint(50, WIDTH-50)
+            self.y = random.randint(50, HEIGHT-50)
+            self.angle = random.randint(0, 360)
+            self.lives -= 1
+            self.respawn_time = current_time
+            return True
+        return False
+
 # 子弹类
 class Bullet:
     def __init__(self, x, y, angle, is_player=True):
@@ -189,6 +226,14 @@ class Bullet:
     def move(self):
         self.x += self.speed * math.cos(math.radians(self.angle))
         self.y -= self.speed * math.sin(math.radians(self.angle))
+        
+        # 检查与障碍物的碰撞
+        bullet_rect = pygame.Rect(int(self.x - self.radius), int(self.y - self.radius),
+                                self.radius * 2, self.radius * 2)
+        for obstacle in obstacles:
+            if bullet_rect.colliderect(obstacle.rect):
+                return True  # 返回True表示子弹击中障碍物
+        return False
 
     def draw(self):
         color = RED if self.is_player else BLACK
@@ -203,10 +248,11 @@ class Bullet:
         return self.x < 0 or self.x > WIDTH or self.y < 0 or self.y > HEIGHT
 
 # 游戏变量
-player = Tank(WIDTH // 2, HEIGHT // 2, GREEN, True)
-enemies = [Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False) for _ in range(2)]  # 减少到2个敌人
+player = None
+enemies = []
 bullets = []
-score = 0  # 添加得分变量
+obstacles = []
+score = 0
 FPS = 60
 clock = pygame.time.Clock()
 
@@ -323,17 +369,90 @@ def draw_victory_screen():
                 return "quit"
     return None
 
+def game_over_screen():
+    screen.fill(WHITE)
+    font = pygame.font.Font(None, 74)
+    text = font.render("你失去了一条生命!", True, RED)
+    screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 3))
+
+    font = pygame.font.Font(None, 50)
+    if player.lives > 0:
+        continue_text = font.render("按 SPACE 继续游戏", True, GREEN)
+        screen.blit(continue_text, (WIDTH // 2 - continue_text.get_width() // 2, HEIGHT // 2))
+    else:
+        game_over_text = font.render("游戏结束", True, RED)
+        screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 2))
+    
+    menu_text = font.render("按 M 返回主菜单", True, BLUE)
+    quit_text = font.render("按 Q 退出游戏", True, RED)
+    screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 60))
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
+    
+    pygame.display.flip()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return "quit"
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE and player.lives > 0:
+                return "continue"
+            if event.key == pygame.K_m:
+                return "menu"
+            if event.key == pygame.K_q:
+                return "quit"
+    return None
+
 def reset_game():
-    global player, enemies, bullets, score
-    player = Tank(WIDTH // 2, HEIGHT // 2, GREEN, True)
-    enemies = [Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False) for _ in range(2)]
+    global player, enemies, bullets, score, obstacles
+    # 随机玩家位置
+    player = Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), GREEN, True)
+    player.lives = 3  # 重置生命值
+    
+    # 增加敌人数量,降低属性
+    enemies = []
+    for _ in range(5):  # 增加到5个敌人
+        enemy = Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False)
+        enemy.speed = random.uniform(0.3, 1.5)  # 降低速度
+        enemy.shoot_interval = 3000  # 增加射击间隔
+        enemies.append(enemy)
+    
+    # 创建随机障碍物
+    obstacles = []
+    for _ in range(8):  # 添加8个障碍物
+        while True:
+            width = random.randint(40, 100)
+            height = random.randint(40, 100)
+            x = random.randint(0, WIDTH - width)
+            y = random.randint(0, HEIGHT - height)
+            new_obstacle = Obstacle(x, y, width, height)
+            
+            # 检查是否与现有障碍物或玩家重叠
+            overlap = False
+            if abs(x - player.x) < 100 and abs(y - player.y) < 100:
+                overlap = True
+            for obs in obstacles:
+                if new_obstacle.rect.colliderect(obs.rect):
+                    overlap = True
+                    break
+            
+            if not overlap:
+                obstacles.append(new_obstacle)
+                break
+    
     bullets = []
-    score = 0  # 重置得分
+    score = 0
 
 def draw_score():
     font = pygame.font.Font(None, 36)
     score_text = font.render(f"得分: {score}", True, BLACK)
     screen.blit(score_text, (10, 10))
+
+def draw_lives():
+    if not player:
+        return
+    font = pygame.font.Font(None, 36)
+    lives_text = font.render(f"生命值: {player.lives}", True, RED)
+    screen.blit(lives_text, (10, 50))
 
 def setup():
     pass
@@ -359,10 +478,23 @@ def update_loop():
             game_state = GAME_STATE_PLAYING
         return
     
+    current_time = pygame.time.get_ticks()
+    
+    # 在游戏状态检查之前添加重生检查
+    if game_state == GAME_STATE_PLAYING and not player.alive:
+        if player.respawn(current_time):
+            # 重置敌人位置，避免重生后立即被击中
+            for enemy in enemies:
+                if enemy.alive:
+                    enemy.x = random.randint(50, WIDTH-50)
+                    enemy.y = random.randint(50, HEIGHT-50)
+        elif player.lives <= 0:
+            game_state = GAME_STATE_GAMEOVER
+    
     if game_state == GAME_STATE_GAMEOVER:
-        action = restart_screen()
-        if action == "restart":
-            reset_game()
+        action = game_over_screen()
+        if action == "continue":
+            player.respawn(current_time)
             game_state = GAME_STATE_PLAYING
         elif action == "menu":
             game_state = GAME_STATE_MENU
@@ -399,7 +531,6 @@ def update_loop():
         player.move(keys)
 
     # 更新敌人
-    current_time = pygame.time.get_ticks()
     for enemy in enemies:
         if enemy.alive:
             enemy.move()
@@ -409,7 +540,9 @@ def update_loop():
 
     # 更新子弹并检查碰撞
     for bullet in bullets[:]:
-        bullet.move()
+        if bullet.move():  # 如果子弹击中障碍物
+            bullets.remove(bullet)
+            continue
         if bullet.off_screen():
             bullets.remove(bullet)
             continue
@@ -430,6 +563,8 @@ def update_loop():
 
     # 绘制
     draw_background()
+    for obstacle in obstacles:
+        obstacle.draw()
     if player.alive or current_time - player.explosion_time < player.explosion_duration:
         player.draw(current_time)
     for enemy in enemies:
@@ -438,6 +573,7 @@ def update_loop():
     for bullet in bullets:
         bullet.draw()
     draw_score()  # 显示得分
+    draw_lives()  # 添加生命值显示
     pygame.display.flip()
 
     # 控制帧率
