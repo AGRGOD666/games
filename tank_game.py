@@ -57,13 +57,16 @@ class Tank:
         self.color = color
         self.is_player = is_player
         self.last_shot = 0
-        self.shoot_interval = 1000 if is_player else 2000  # 敌人射击间隔增加到2秒
+        self.shoot_interval = 1000 if is_player else 4000  # 增加敌人射击间隔到4秒
         self.alive = True
         self.explosion_time = 0
         self.explosion_duration = 500  # 爆炸效果持续0.5秒
         self.lives = 3 if is_player else 1  # 玩家有3条命，敌人1条命
         self.respawn_time = 0  # 重生计时器
         self.respawn_delay = 2000  # 重生延迟2秒
+        self.armor = 2 if is_player else 0  # 玩家有2点护甲
+        self.invincible_time = 0  # 无敌时间
+        self.invincible_duration = 3000  # 重生后3秒无敌
 
     def move(self, keys=None):
         old_x, old_y = self.x, self.y
@@ -116,16 +119,13 @@ class Tank:
                 pygame.draw.circle(screen, RED, (int(self.x), int(self.y)), radius // 2)
             return
 
+        # 无敌状态闪烁效果
+        if self.is_invincible(current_time) and int(current_time / 200) % 2 == 0:
+            return
+
         # 绘制坦克阴影
         shadow_offset = 5
         points = [
-            (self.x + self.size * math.cos(math.radians(self.angle + 45)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 45)) + shadow_offset),
-            (self.x + self.size * math.cos(math.radians(self.angle + 135)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 135)) + shadow_offset),
-            (self.x + self.size * math.cos(math.radians(self.angle + 225)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 225)) + shadow_offset),
-            (self.x + self.size * math.cos(math.radians(self.angle + 315)) + shadow_offset, self.y - self.size * math.sin(math.radians(self.angle + 315)) + shadow_offset)
-        ]
-        pygame.gfxdraw.filled_polygon(screen, points, GRAY)
-
         # 绘制履带
         track_width = 8
         track_points = [
