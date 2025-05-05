@@ -64,9 +64,13 @@ class Tank:
         self.lives = 3 if is_player else 1  # 玩家有3条命，敌人1条命
         self.respawn_time = 0  # 重生计时器
         self.respawn_delay = 2000  # 重生延迟2秒
-        self.armor = 2 if is_player else 0  # 玩家有2点护甲
+        self.armor = 3 if is_player else 1  # 玩家3点护甲，敌人1点护甲
+        self.max_armor = 3 if is_player else 1
         self.invincible_time = 0  # 无敌时间
         self.invincible_duration = 3000  # 重生后3秒无敌
+
+    def is_invincible(self, current_time):
+        return current_time - self.respawn_time < self.invincible_duration
 
     def move(self, keys=None):
         old_x, old_y = self.x, self.y
@@ -113,9 +117,15 @@ class Tank:
     def draw(self, current_time):
         if not self.alive:
             if current_time - self.explosion_time < self.explosion_duration:
-                # 修复爆炸效果绘制参数
-                radius = int(10 + (current_time - self.explosion_time) / self.explosion_duration * 20)
-                pygame.draw.circle(screen, YELLOW, (int(self.x), int(self.y)), radius)
+                # 增强爆炸效果
+                progress = (current_time - self.explosion_time) / self.explosion_duration
+                radius = int(10 + progress * 30)
+                # 绘制爆炸光环
+                for r in range(radius, radius-10, -2):
+                    alpha = int(255 * (1 - progress))
+                    explosion_surface = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
+                    pygame.draw.circle(explosion_surface, (*YELLOW, alpha), (r, r), r)
+                    screen.blit(explosion_surface, (int(self.x-r), int(self.y-r)))
                 pygame.draw.circle(screen, RED, (int(self.x), int(self.y)), radius // 2)
             return
 
@@ -126,6 +136,17 @@ class Tank:
         # 绘制坦克阴影
         shadow_offset = 5
         points = [
+            (self.x + self.size * math.cos(math.radians(self.angle + 45)) + shadow_offset, 
+             self.y - self.size * math.sin(math.radians(self.angle + 45)) + shadow_offset),
+            (self.x + self.size * math.cos(math.radians(self.angle + 135)) + shadow_offset, 
+             self.y - self.size * math.sin(math.radians(self.angle + 135)) + shadow_offset),
+            (self.x + self.size * math.cos(math.radians(self.angle + 225)) + shadow_offset, 
+             self.y - self.size * math.sin(math.radians(self.angle + 225)) + shadow_offset),
+            (self.x + self.size * math.cos(math.radians(self.angle + 315)) + shadow_offset, 
+             self.y - self.size * math.sin(math.radians(self.angle + 315)) + shadow_offset)
+        ]
+        pygame.gfxdraw.filled_polygon(screen, points, GRAY)
+
         # 绘制履带
         track_width = 8
         track_points = [
@@ -184,6 +205,19 @@ class Tank:
         pygame.draw.circle(screen, DARK_GREEN if self.is_player else DARK_BLUE, 
                          (int(self.x), int(self.y)), barrel_width+2)
 
+        # 在坦克上方显示护甲值（仅对玩家显示）
+        if self.is_player:
+            armor_width = 40
+            armor_height = 4
+            armor_x = self.x - armor_width//2
+            armor_y = self.y - self.size - 10
+            # 绘制护甲条背景
+            pygame.draw.rect(screen, GRAY, (armor_x, armor_y, armor_width, armor_height))
+            # 绘制当前护甲值
+            armor_remaining = (armor_width * self.armor) // self.max_armor
+            if self.armor > 0:
+                pygame.draw.rect(screen, BLUE, (armor_x, armor_y, armor_remaining, armor_height))
+
     def shoot(self, current_time):
         if not self.alive:
             return None
@@ -205,10 +239,11 @@ class Tank:
     def respawn(self, current_time):
         if not self.alive and self.lives > 0 and current_time - self.explosion_time >= self.explosion_duration:
             self.alive = True
-            self.x = random.randint(50, WIDTH-50)
-            self.y = random.randint(50, HEIGHT-50)
+            # 在安全位置重生
+            self.x, self.y = find_safe_position(self.size)
             self.angle = random.randint(0, 360)
             self.lives -= 1
+            self.armor = self.max_armor  # 重置护甲值
             self.respawn_time = current_time
             return True
         return False
@@ -402,42 +437,49 @@ def game_over_screen():
                 return "quit"
     return None
 
+def is_valid_position(x, y, size):
+    # 检查位置是否与任何障碍物重叠
+    tank_rect = pygame.Rect(x - size, y - size, size * 2, size * 2)
+    for obstacle in obstacles:
+        if tank_rect.colliderect(obstacle.rect):
+            return False
+    return True
+
+def find_safe_position(size):
+    # 尝试找到一个安全的生成位置
+    for _ in range(100):  # 最多尝试100次
+        x = random.randint(size, WIDTH - size)
+        y = random.randint(size, HEIGHT - size)
+        if is_valid_position(x, y, size):
+            return x, y
+    # 如果找不到合适位置，返回地图中心
+    return WIDTH // 2, HEIGHT // 2
+
 def reset_game():
     global player, enemies, bullets, score, obstacles
-    # 随机玩家位置
-    player = Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), GREEN, True)
-    player.lives = 3  # 重置生命值
     
-    # 增加敌人数量,降低属性
-    enemies = []
-    for _ in range(5):  # 增加到5个敌人
-        enemy = Tank(random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50), BLUE, False)
-        enemy.speed = random.uniform(0.3, 1.5)  # 降低速度
-        enemy.shoot_interval = 3000  # 增加射击间隔
-        enemies.append(enemy)
-    
-    # 创建随机障碍物
+    # 先创建障碍物
     obstacles = []
-    for _ in range(8):  # 添加8个障碍物
-        while True:
-            width = random.randint(40, 100)
-            height = random.randint(40, 100)
-            x = random.randint(0, WIDTH - width)
-            y = random.randint(0, HEIGHT - height)
-            new_obstacle = Obstacle(x, y, width, height)
-            
-            # 检查是否与现有障碍物或玩家重叠
-            overlap = False
-            if abs(x - player.x) < 100 and abs(y - player.y) < 100:
-                overlap = True
-            for obs in obstacles:
-                if new_obstacle.rect.colliderect(obs.rect):
-                    overlap = True
-                    break
-            
-            if not overlap:
-                obstacles.append(new_obstacle)
-                break
+    for _ in range(8):
+        width = random.randint(40, 100)
+        height = random.randint(40, 100)
+        x = random.randint(0, WIDTH - width)
+        y = random.randint(0, HEIGHT - height)
+        obstacles.append(Obstacle(x, y, width, height))
+    
+    # 在安全位置生成玩家
+    x, y = find_safe_position(30)
+    player = Tank(x, y, GREEN, True)
+    player.lives = 3
+    
+    # 在安全位置生成敌人
+    enemies = []
+    for _ in range(3):  # 修改这里的数量
+        x, y = find_safe_position(30)
+        enemy = Tank(x, y, BLUE, False)
+        enemy.speed = random.uniform(0.3, 1.5)
+        enemy.shoot_interval = 3000
+        enemies.append(enemy)
     
     bullets = []
     score = 0
@@ -451,7 +493,7 @@ def draw_lives():
     if not player:
         return
     font = pygame.font.Font(None, 36)
-    lives_text = font.render(f"生命值: {player.lives}", True, RED)
+    lives_text = font.render(f"生命值: {player.lives}  护甲值: {player.armor}", True, RED)
     screen.blit(lives_text, (10, 50))
 
 def setup():
@@ -550,15 +592,20 @@ def update_loop():
         if bullet.is_player:
             for enemy in enemies:
                 if enemy.alive and math.hypot(bullet.x - enemy.x, bullet.y - enemy.y) < enemy.size:
-                    enemy.alive = False
-                    enemy.explosion_time = current_time
+                    enemy.armor -= 1
+                    if enemy.armor <= 0:
+                        enemy.alive = False
+                        enemy.explosion_time = current_time
+                        score += 100
                     bullets.remove(bullet)
-                    score += 100  # 击中敌人增加得分
                     break
         else:
             if player.alive and math.hypot(bullet.x - player.x, bullet.y - player.y) < player.size:
-                player.alive = False
-                player.explosion_time = current_time
+                if not player.is_invincible(current_time):
+                    player.armor -= 1
+                    if player.armor <= 0:
+                        player.alive = False
+                        player.explosion_time = current_time
                 bullets.remove(bullet)
 
     # 绘制
