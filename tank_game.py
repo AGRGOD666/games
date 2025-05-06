@@ -9,7 +9,7 @@ import pygame.gfxdraw
 pygame.init()
 
 # 屏幕设置
-WIDTH, HEIGHT = 1200, 800  # 加大地图尺寸
+WIDTH, HEIGHT = 1000, 800  # 加大地图尺寸
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("坦克游戏")
 
@@ -23,12 +23,15 @@ DARK_BLUE = (0, 0, 150)
 RED = (255, 0, 0)
 YELLOW = (255, 255, 0)
 GRAY = (200, 200, 200)
+PLAYER1_COLOR = (0, 200, 0)  # 绿色
+PLAYER2_COLOR = (200, 0, 0)  # 红色
 
 # 游戏状态
 GAME_STATE_MENU = 0
-GAME_STATE_PLAYING = 1
-GAME_STATE_GAMEOVER = 2
-GAME_STATE_VICTORY = 3
+GAME_STATE_PLAYING_SINGLE = 1
+GAME_STATE_PLAYING_COOP = 2  # 添加双人模式状态
+GAME_STATE_GAMEOVER = 3
+GAME_STATE_VICTORY = 4
 game_state = GAME_STATE_MENU
 
 # 障碍物类
@@ -48,7 +51,7 @@ class Obstacle:
 
 # 坦克类
 class Tank:
-    def __init__(self, x, y, color=GREEN, is_player=True):
+    def __init__(self, x, y, color=GREEN, is_player=True, player_id=1):
         self.x = x
         self.y = y
         self.angle = 0
@@ -68,6 +71,23 @@ class Tank:
         self.max_armor = 3 if is_player else 1
         self.invincible_time = 0  # 无敌时间
         self.invincible_duration = 3000  # 重生后3秒无敌
+        self.player_id = player_id  # 添加玩家ID
+        self.controls = {
+            1: {  # 玩家1控制
+                'up': pygame.K_w,
+                'down': pygame.K_s,
+                'left': pygame.K_a,
+                'right': pygame.K_d,
+                'shoot': pygame.K_SPACE
+            },
+            2: {  # 玩家2控制
+                'up': pygame.K_UP,
+                'down': pygame.K_DOWN,
+                'left': pygame.K_LEFT,
+                'right': pygame.K_RIGHT,
+                'shoot': pygame.K_RETURN
+            }
+        }
 
     def is_invincible(self, current_time):
         return current_time - self.respawn_time < self.invincible_duration
@@ -75,25 +95,16 @@ class Tank:
     def move(self, keys=None):
         old_x, old_y = self.x, self.y
         if self.is_player:
-            if keys[pygame.K_w]:  # 向前移动
+            controls = self.controls[self.player_id]
+            if keys[controls['up']]:  # 向前移动
                 self.x += self.speed * math.cos(math.radians(self.angle))
                 self.y -= self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_s]:  # 向后移动
+            if keys[controls['down']]:  # 向后移动
                 self.x -= self.speed * math.cos(math.radians(self.angle))
                 self.y += self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_a]:  # 左转
+            if keys[controls['left']]:  # 左转
                 self.angle += 3
-            if keys[pygame.K_d]:  # 右转
-                self.angle -= 3
-            if keys[pygame.K_UP]:  # 向前移动
-                self.x += self.speed * math.cos(math.radians(self.angle))
-                self.y -= self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_DOWN]:  # 向后移动
-                self.x -= self.speed * math.cos(math.radians(self.angle))
-                self.y += self.speed * math.sin(math.radians(self.angle))
-            if keys[pygame.K_LEFT]:  # 左转
-                self.angle += 3
-            if keys[pygame.K_RIGHT]:  # 右转
+            if keys[controls['right']]:  # 右转
                 self.angle -= 3
         else:
             # 敌人随机移动
@@ -284,6 +295,7 @@ class Bullet:
 
 # 游戏变量
 player = None
+player2 = None
 enemies = []
 bullets = []
 obstacles = []
@@ -316,10 +328,13 @@ def draw_menu():
     screen.blit(title, (WIDTH // 2 - title.get_width() // 2, HEIGHT // 3))
 
     font = pygame.font.Font(None, 50)
-    start_text = font.render("按 ENTER 开始游戏", True, GREEN)
+    single_text = font.render("按 1 进入单人模式", True, GREEN)
+    coop_text = font.render("按 2 进入双人模式", True, BLUE)
     quit_text = font.render("按 Q 退出游戏", True, RED)
-    screen.blit(start_text, (WIDTH // 2 - start_text.get_width() // 2, HEIGHT // 2))
-    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 60))
+    
+    screen.blit(single_text, (WIDTH // 2 - single_text.get_width() // 2, HEIGHT // 2))
+    screen.blit(coop_text, (WIDTH // 2 - coop_text.get_width() // 2, HEIGHT // 2 + 60))
+    screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
     pygame.display.flip()
 
 def handle_menu():
@@ -327,10 +342,13 @@ def handle_menu():
         if event.type == pygame.QUIT:
             return False
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_RETURN:  # ENTER键开始游戏
-                reset_game()
-                return True
-            if event.key == pygame.K_q:  # Q键退出游戏
+            if event.key == pygame.K_1:  # 1键进入单人模式
+                reset_game(is_coop=False)
+                return "single"
+            if event.key == pygame.K_2:  # 2键进入双人模式
+                reset_game(is_coop=True)
+                return "coop"
+            if event.key == pygame.K_q:
                 return False
     return None
 
@@ -418,8 +436,8 @@ def game_over_screen():
         game_over_text = font.render("游戏结束", True, RED)
         screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 2))
     
-    menu_text = font.render("按 M 返回主菜单", True, BLUE)
-    quit_text = font.render("按 Q 退出游戏", True, RED)
+    menu_text = font.render("Press M back to menu. ", True, BLUE)
+    quit_text = font.render("Press Q to quit game.", True, RED)
     screen.blit(menu_text, (WIDTH // 2 - menu_text.get_width() // 2, HEIGHT // 2 + 60))
     screen.blit(quit_text, (WIDTH // 2 - quit_text.get_width() // 2, HEIGHT // 2 + 120))
     
@@ -445,40 +463,67 @@ def is_valid_position(x, y, size):
             return False
     return True
 
-def find_safe_position(size):
-    # 尝试找到一个安全的生成位置
-    for _ in range(100):  # 最多尝试100次
-        x = random.randint(size, WIDTH - size)
-        y = random.randint(size, HEIGHT - size)
+def find_safe_position(size, zone="any"):
+    """增强的安全位置查找函数，支持区域选择"""
+    for _ in range(100):
+        if zone == "player1":
+            x = random.randint(size, WIDTH // 4)  # 左侧1/4地图
+            y = random.randint(size, HEIGHT - size)
+        elif zone == "player2":
+            x = random.randint(WIDTH * 3 // 4, WIDTH - size)  # 右侧1/4地图
+            y = random.randint(size, HEIGHT - size)
+        elif zone == "enemy":
+            x = random.randint(WIDTH // 3, WIDTH * 2 // 3)  # 中间1/3地图
+            y = random.randint(size, HEIGHT - size)
+        else:
+            x = random.randint(size, WIDTH - size)
+            y = random.randint(size, HEIGHT - size)
+        
         if is_valid_position(x, y, size):
             return x, y
-    # 如果找不到合适位置，返回地图中心
     return WIDTH // 2, HEIGHT // 2
 
-def reset_game():
-    global player, enemies, bullets, score, obstacles
+def reset_game(is_coop=False):
+    global player, player2, enemies, bullets, obstacles, score, WIDTH, HEIGHT
     
-    # 先创建障碍物
+    # 设置更大的地图
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    
+    # 先创建障碍物，增加到15个
     obstacles = []
-    for _ in range(8):
+    for _ in range(15):
         width = random.randint(40, 100)
         height = random.randint(40, 100)
         x = random.randint(0, WIDTH - width)
         y = random.randint(0, HEIGHT - height)
         obstacles.append(Obstacle(x, y, width, height))
     
-    # 在安全位置生成玩家
-    x, y = find_safe_position(30)
-    player = Tank(x, y, GREEN, True)
+    # 在左侧创建玩家1
+    x, y = find_safe_position(30, "player1")
+    player = Tank(x, y, PLAYER1_COLOR, True, player_id=1)
     player.lives = 3
     
-    # 在安全位置生成敌人
+    # 创建玩家2（如果是双人模式）
+    player2 = None
+    if is_coop:
+        x, y = find_safe_position(30, "player2")
+        player2 = Tank(x, y, PLAYER2_COLOR, True, player_id=2)
+        player2.lives = 3
+    
+    # 在中间区域生成敌人
     enemies = []
-    for _ in range(3):  # 修改这里的数量
-        x, y = find_safe_position(30)
+    enemy_count = 6 if is_coop else 3
+    for _ in range(enemy_count):
+        x, y = find_safe_position(30, "enemy")
         enemy = Tank(x, y, BLUE, False)
-        enemy.speed = random.uniform(0.3, 1.5)
-        enemy.shoot_interval = 3000
+        # 双人模式下降低敌人属性
+        if is_coop:
+            enemy.speed = random.uniform(0.2, 1.0)  # 降低速度
+            enemy.shoot_interval = 5000  # 增加射击间隔到5秒
+            enemy.armor = 2  # 降低护甲
+        else:
+            enemy.speed = random.uniform(0.3, 1.5)
+            enemy.shoot_interval = 3000
         enemies.append(enemy)
     
     bullets = []
@@ -495,6 +540,9 @@ def draw_lives():
     font = pygame.font.Font(None, 36)
     lives_text = font.render(f"生命值: {player.lives}  护甲值: {player.armor}", True, RED)
     screen.blit(lives_text, (10, 50))
+    if player2:
+        lives_text2 = font.render(f"玩家2生命值: {player2.lives}  护甲值: {player2.armor}", True, RED)
+        screen.blit(lives_text2, (10, 90))
 
 def setup():
     pass
@@ -516,28 +564,41 @@ def update_loop():
         if result is False:
             pygame.quit()
             exit()
-        elif result is True:
-            game_state = GAME_STATE_PLAYING
+        elif result == "single":
+            game_state = GAME_STATE_PLAYING_SINGLE
+        elif result == "coop":
+            game_state = GAME_STATE_PLAYING_COOP
         return
     
     current_time = pygame.time.get_ticks()
     
     # 在游戏状态检查之前添加重生检查
-    if game_state == GAME_STATE_PLAYING and not player.alive:
-        if player.respawn(current_time):
-            # 重置敌人位置，避免重生后立即被击中
-            for enemy in enemies:
-                if enemy.alive:
-                    enemy.x = random.randint(50, WIDTH-50)
-                    enemy.y = random.randint(50, HEIGHT-50)
-        elif player.lives <= 0:
-            game_state = GAME_STATE_GAMEOVER
+    if game_state in [GAME_STATE_PLAYING_SINGLE, GAME_STATE_PLAYING_COOP]:
+        if not player.alive:
+            if player.respawn(current_time):
+                # 重置敌人位置，避免重生后立即被击中
+                for enemy in enemies:
+                    if enemy.alive:
+                        enemy.x = random.randint(50, WIDTH-50)
+                        enemy.y = random.randint(50, HEIGHT-50)
+            elif player.lives <= 0:
+                game_state = GAME_STATE_GAMEOVER
+        if player2 and not player2.alive:
+            if player2.respawn(current_time):
+                for enemy in enemies:
+                    if enemy.alive:
+                        enemy.x = random.randint(50, WIDTH-50)
+                        enemy.y = random.randint(50, HEIGHT-50)
+            elif player2.lives <= 0:
+                game_state = GAME_STATE_GAMEOVER
     
     if game_state == GAME_STATE_GAMEOVER:
         action = game_over_screen()
         if action == "continue":
             player.respawn(current_time)
-            game_state = GAME_STATE_PLAYING
+            if player2:
+                player2.respawn(current_time)
+            game_state = GAME_STATE_PLAYING_SINGLE if not player2 else GAME_STATE_PLAYING_COOP
         elif action == "menu":
             game_state = GAME_STATE_MENU
         elif action == "quit":
@@ -548,8 +609,8 @@ def update_loop():
     if game_state == GAME_STATE_VICTORY:
         action = draw_victory_screen()
         if action == "restart":
-            reset_game()
-            game_state = GAME_STATE_PLAYING
+            reset_game(is_coop=(game_state == GAME_STATE_PLAYING_COOP))
+            game_state = GAME_STATE_PLAYING_SINGLE if not player2 else GAME_STATE_PLAYING_COOP
         elif action == "menu":
             game_state = GAME_STATE_MENU
         elif action == "quit":
@@ -562,8 +623,12 @@ def update_loop():
         if event.type == pygame.QUIT:
             return
         if event.type == pygame.KEYDOWN:
-            if event.key in [pygame.K_j, pygame.K_SPACE] and player.alive:  # 玩家按下 J 或 SPACE 键射击
+            if player.alive and event.key == player.controls[player.player_id]['shoot']:  # 玩家1射击
                 bullet = player.shoot(pygame.time.get_ticks())
+                if bullet:
+                    bullets.append(bullet)
+            if player2 and player2.alive and event.key == player2.controls[player2.player_id]['shoot']:  # 玩家2射击
+                bullet = player2.shoot(pygame.time.get_ticks())
                 if bullet:
                     bullets.append(bullet)
 
@@ -571,6 +636,8 @@ def update_loop():
     keys = pygame.key.get_pressed()
     if player.alive:
         player.move(keys)
+    if player2 and player2.alive:
+        player2.move(keys)
 
     # 更新敌人
     for enemy in enemies:
@@ -607,6 +674,15 @@ def update_loop():
                         player.alive = False
                         player.explosion_time = current_time
                 bullets.remove(bullet)
+                continue
+            if player2 and player2.alive and math.hypot(bullet.x - player2.x, bullet.y - player2.y) < player2.size:
+                if not player2.is_invincible(current_time):
+                    player2.armor -= 1
+                    if player2.armor <= 0:
+                        player2.alive = False
+                        player2.explosion_time = current_time
+                bullets.remove(bullet)
+                continue
 
     # 绘制
     draw_background()
@@ -614,6 +690,8 @@ def update_loop():
         obstacle.draw()
     if player.alive or current_time - player.explosion_time < player.explosion_duration:
         player.draw(current_time)
+    if player2 and (player2.alive or current_time - player2.explosion_time < player2.explosion_duration):
+        player2.draw(current_time)
     for enemy in enemies:
         if enemy.alive or current_time - enemy.explosion_time < enemy.explosion_duration:
             enemy.draw(current_time)
@@ -627,12 +705,13 @@ def update_loop():
     clock.tick(FPS)
 
     # 检查胜利条件
-    
     if player.alive and all(not enemy.alive for enemy in enemies):
         game_state = GAME_STATE_VICTORY
 
     # 检查玩家失败
     if not player.alive and pygame.time.get_ticks() - player.explosion_time >= player.explosion_duration:
+        game_state = GAME_STATE_GAMEOVER
+    if player2 and not player2.alive and pygame.time.get_ticks() - player2.explosion_time >= player2.explosion_duration:
         game_state = GAME_STATE_GAMEOVER
 
 
