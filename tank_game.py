@@ -1,7 +1,5 @@
 import pygame
 import math
-import asyncio
-import platform
 import random
 import pygame.gfxdraw
 
@@ -88,11 +86,18 @@ class Tank:
                 'shoot': pygame.K_RETURN
             }
         }
+        self.shooting = False  # 添加射击状态标志
+        self.shoot_cooldown = 500  # 射击后禁止移动的时间（毫秒）
+        self.shoot_start_time = 0  # 记录开始射击的时间
 
     def is_invincible(self, current_time):
         return current_time - self.respawn_time < self.invincible_duration
 
     def move(self, keys=None):
+        # 如果正在射击冷却中，禁止移动
+        if self.shooting:
+            return
+
         old_x, old_y = self.x, self.y
         if self.is_player:
             controls = self.controls[self.player_id]
@@ -230,21 +235,34 @@ class Tank:
                 pygame.draw.rect(screen, BLUE, (armor_x, armor_y, armor_remaining, armor_height))
 
     def shoot(self, current_time):
-        if not self.alive:
+        if not self.alive or self.shooting:
             return None
+            
+        # 设置射击状态和时间
+        self.shooting = True
+        self.shoot_start_time = current_time
+
+        # 计算炮管末端位置的通用函数
+        def get_barrel_end_position(angle):
+            barrel_length = self.size * 1.2  # 与绘制炮管时使用的长度相同
+            end_x = self.x + barrel_length * math.cos(math.radians(angle))
+            end_y = self.y - barrel_length * math.sin(math.radians(angle))
+            return end_x, end_y
+
         if self.is_player:
-            bullet_x = self.x + self.size * math.cos(math.radians(self.angle))
-            bullet_y = self.y - self.size * math.sin(math.radians(self.angle))
+            bullet_x, bullet_y = get_barrel_end_position(self.angle)
             return Bullet(bullet_x, bullet_y, self.angle, is_player=True)
         else:
             if current_time - self.last_shot > self.shoot_interval:
                 self.last_shot = current_time
+                # 计算瞄准玩家的角度
                 angle_to_player = math.degrees(math.atan2(self.y - player.y, player.x - self.x))
-                # 添加随机偏移降低命中率
-                angle_to_player += random.uniform(-15, 15)
-                bullet_x = self.x + self.size * math.cos(math.radians(angle_to_player))
-                bullet_y = self.y - self.size * math.sin(math.radians(angle_to_player))
-                return Bullet(bullet_x, bullet_y, angle_to_player, is_player=False)
+                # 添加随机偏移来降低命中率
+                firing_angle = angle_to_player + random.uniform(-15, 15)
+                # 从当前朝向的炮管末端发射
+                bullet_x, bullet_y = get_barrel_end_position(firing_angle)
+                self.angle = firing_angle  # 更新坦克朝向，使其面向射击方向
+                return Bullet(bullet_x, bullet_y, firing_angle, is_player=False)
         return None
 
     def respawn(self, current_time):
@@ -545,33 +563,41 @@ def draw_lives():
         screen.blit(lives_text2, (10, 90))
 
 def setup():
-    pass
-
-async def main():
-    global game_state
-    setup()
-    running = True
-    while running:
-        update_loop()
-        await asyncio.sleep(1.0 / FPS)
+    global game_state, player
+    game_state = GAME_STATE_MENU
+    # Initialize a temporary player for menu state
+    x, y = find_safe_position(30, "player1")
+    player = Tank(x, y, PLAYER1_COLOR, True, player_id=1)
 
 def update_loop():
-    global game_state, score
+    global game_state, score, player, player2
     
+    current_time = pygame.time.get_ticks()
+
+    # Menu state handling
     if game_state == GAME_STATE_MENU:
         draw_menu()
         result = handle_menu()
         if result is False:
-            pygame.quit()
-            exit()
+            return False
         elif result == "single":
             game_state = GAME_STATE_PLAYING_SINGLE
+            reset_game(is_coop=False)
         elif result == "coop":
             game_state = GAME_STATE_PLAYING_COOP
-        return
-    
-    current_time = pygame.time.get_ticks()
-    
+            reset_game(is_coop=True)
+        return True
+
+    # Only update shooting status during gameplay if player exists
+    if game_state in [GAME_STATE_PLAYING_SINGLE, GAME_STATE_PLAYING_COOP] and player:
+        if player.shooting and current_time - player.shoot_start_time > player.shoot_cooldown:
+            player.shooting = False
+        if player2 and player2.shooting and current_time - player2.shoot_start_time > player2.shoot_cooldown:
+            player2.shooting = False
+        for enemy in enemies:
+            if enemy.shooting and current_time - enemy.shoot_start_time > enemy.shoot_cooldown:
+                enemy.shooting = False
+
     # 在游戏状态检查之前添加重生检查
     if game_state in [GAME_STATE_PLAYING_SINGLE, GAME_STATE_PLAYING_COOP]:
         if not player.alive:
@@ -604,7 +630,7 @@ def update_loop():
         elif action == "quit":
             pygame.quit()
             exit()
-        return
+        return True
 
     if game_state == GAME_STATE_VICTORY:
         action = draw_victory_screen()
@@ -616,12 +642,12 @@ def update_loop():
         elif action == "quit":
             pygame.quit()
             exit()
-        return
+        return True
 
     # 游戏进行中的逻辑
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            return
+            return False
         if event.type == pygame.KEYDOWN:
             if player.alive and event.key == player.controls[player.player_id]['shoot']:  # 玩家1射击
                 bullet = player.shoot(pygame.time.get_ticks())
@@ -714,9 +740,15 @@ def update_loop():
     if player2 and not player2.alive and pygame.time.get_ticks() - player2.explosion_time >= player2.explosion_duration:
         game_state = GAME_STATE_GAMEOVER
 
+    return True
 
-if platform.system() == "Emscripten":
-    asyncio.ensure_future(main())
-else:
-    if __name__ == "__main__":
-        asyncio.run(main())
+def main():
+    global game_state
+    setup()
+    running = True
+    while running:
+        running = update_loop()
+    pygame.quit()
+
+if __name__ == "__main__":
+    main()
